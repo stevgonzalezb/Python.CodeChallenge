@@ -11,8 +11,7 @@ config.read(config_path)
 
 #Declare constant variables from config file
 MERCHANT_NAME = config['merchant']['name']
-BRANCH_1 = config['merchant']['branch_1']
-BRANCH_2 = config['merchant']['branch_2']
+BRANCHES = config['merchant']['branches'].split(";")
 TOP_INSERT = int(config['source_data']['top_insert'])
 INDEX_COL_NAME = config['source_data']['index_col_name']
 SORT_COL_NAME = config['source_data']['sort_col_name']
@@ -83,7 +82,7 @@ def process_csv_files():
 
         #Filterin data
         print('ingestion.py >> process_csv_files >> Filtering data by branches and stocks')
-        df_filtered_prices = df_stocks_prices[(df_stocks_prices['STOCK'] > 0) & ((df_stocks_prices['BRANCH'] == BRANCH_1) | (df_stocks_prices['BRANCH'] == BRANCH_2))]
+        df_filtered_prices = df_stocks_prices[(df_stocks_prices['STOCK'] > 0) & (df_stocks_prices['BRANCH'].isin(BRANCHES))]
         df_final_data = df_products.join(df_filtered_prices, on=[INDEX_COL_NAME], how='inner', rsuffix='_rSKU', lsuffix='_lSKU')
 
         #Cleanig data        
@@ -216,12 +215,9 @@ def main():
             else:
                 print("ingestion.py >> main >> The merchant cannot be updated. Check if it's able to be deleted or if not exists")
 
-            df_rhsm_branch = products[products['BRANCH'] == BRANCH_1].sort_values(by=[SORT_COL_NAME], ascending=False).head(TOP_INSERT) 
-            df_mm_branch = products[products['BRANCH'] == BRANCH_2].sort_values(by=[SORT_COL_NAME], ascending=False).head(TOP_INSERT) 
-
-            #Insert products from the specific branches
-            df_rhsm_branch.apply(lambda row: update_products(access_token, row, richards_data['id']), axis=1)
-            df_mm_branch.apply(lambda row: update_products(access_token, row, richards_data['id']), axis=1)
+            for branch in BRANCHES:
+                df_filtered_products = products[products['BRANCH'] == branch].sort_values(by=[SORT_COL_NAME], ascending=False).head(TOP_INSERT)
+                df_filtered_products.apply(lambda row: update_products(access_token, row, richards_data['id']), axis=1)
 
             #Delete CSV files from environment
             if os.path.exists(os.path.join(os.path.abspath(os.path.dirname(__file__)), RELATIVE_PATH_PRODUCTS)):
@@ -230,7 +226,7 @@ def main():
                 os.remove(os.path.join(os.path.abspath(os.path.dirname(__file__)), RELATIVE_PATH_PRICES_STOCKS))
             print("ingestion.py >> main >> CSV files removed successfully.")
 
-    except:
-        print("ingestion.py >> main >> Error executing the main method.")
+    except Exception as e:
+        print("ingestion.py >> main >> Error executing the main method." + e.__class__)
 
 
