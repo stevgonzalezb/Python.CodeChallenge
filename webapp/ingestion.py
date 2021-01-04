@@ -5,12 +5,14 @@ import os
 import configparser
 
 #Import the config file
-config_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "../../resources/config.ini")
+config_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "../resources/config.ini")
 config = configparser.ConfigParser()
 config.read(config_path)
 
 #Declare constant variables from config file
 MERCHANT_NAME = config['merchant']['name']
+TOP_INSERT = int(config['source_data']['top_insert'])
+SORT_COL_NAME = config['source_data']['sort_col_name']
 PRODUCTS_URL = config['source_data']['csv_products']
 STOCK_PRICES_URL = config['source_data']['csv_stocks_prices']
 DELIMITER = config['source_data']['delimiter']
@@ -18,8 +20,8 @@ BASE_URL = config['api_client']['base_url']
 GRAND_TYPE =config['api_client']['grand_type']
 CLIENT_ID = config['api_client']['client_id']
 CLIENT_SECRET = config['api_client']['client_secret']
-RELATIVE_PATH_PRODUCTS = path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "../../resources/products.csv")
-RELATIVE_PATH_PRICES_STOCKS = path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "../../resources/prices_stock.csv")
+RELATIVE_PATH_PRODUCTS = path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "../resources/products.csv")
+RELATIVE_PATH_PRICES_STOCKS = path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "../resources/prices_stock.csv")
 
 #Method that return the categories concatenated
 def concat_categories(row):
@@ -51,8 +53,6 @@ def remove_html_tags(row):
     except:
         print('ingestion.py >> remove_html_tags >> Error removing HTML tags from products description')
 
-
-
 #Method that stitches the csv files
 def process_csv_files():
     try:
@@ -77,25 +77,27 @@ def process_csv_files():
         df_products = pd.read_csv(RELATIVE_PATH_PRODUCTS, delimiter=DELIMITER, index_col=('SKU'))
         df_stocks_prices = pd.read_csv(RELATIVE_PATH_PRICES_STOCKS, delimiter=DELIMITER, index_col=('SKU'))
 
+        #Filterin data
         print('ingestion.py >> process_csv_files >> Filtering data by branches and stocks')
-        #Filtering data
         df_filtered_prices = df_stocks_prices[(df_stocks_prices['STOCK'] > 0) & ((df_stocks_prices['BRANCH'] == 'RHSM') | (df_stocks_prices['BRANCH'] == 'MM'))]
         df_final_data = df_products.join(df_filtered_prices, on=['SKU'], how='inner', rsuffix='_rSKU', lsuffix='_lSKU')
 
         #Cleanig data        
-        print('ingestion.py >> concat_categories >> Setting up products categories')
+        print('ingestion.py >> process_csv_files >> Setting up products categories')
         df_final_data['FULL_CATEGORIES'] = df_final_data.apply(concat_categories, axis = 1)
 
-        print('ingestion.py >> remove_html_tags >> Removing HTML tags from descriptions')
+        print('ingestion.py >> process_csv_files >> Removing HTML tags from descriptions')
         df_final_data['_ITEM_DESCRIPTION'] = df_final_data.apply(remove_html_tags, axis = 1)
+
+        print('ingestion.py >> process_csv_files >> Filling NULL values')
+        df_final_data = df_final_data.fillna({"BUY_UNIT": 'N/A', "DESCRIPTION_STATUS": 'N/A', "ORGANIC_ITEM": 'N/A'})
 
         return df_final_data
 
     except:
         print('ingestion.py >> process_csv_files >> Error processing CSV files')
     
-
-
+#Implementation to get access token from API provider
 def get_access_token():
     print('ingestion.py >> get_access_token >> Getting access token for API')
     token = req.post(BASE_URL+'/oauth/token?client_id='+CLIENT_ID+'&client_secret='+CLIENT_SECRET+'&grant_type='+GRAND_TYPE)
@@ -103,8 +105,9 @@ def get_access_token():
     if token.ok:
         return token.json()['access_token']
     else:
-        print('ingestion.py >> get_access_token >> There are an error obtaining the access token')
+        print('ingestion.py >> get_access_token >> There is an error obtaining the access token')
 
+#Method that exec a GET HTTP method to get all merchants
 def get_merchants(access_token):
     print('ingestion.py >> get_merchants >> Getting all merchants from API')
     header = {'token': 'Bearer ' + access_token}
@@ -113,45 +116,69 @@ def get_merchants(access_token):
     if merchants.ok:
         return merchants.json()
     else:
-        print('ingestion.py >> get_merchants >> There are an error obtaining the merchants')
+        print('ingestion.py >> get_merchants >> There is an error obtaining the merchants')
     
-
-def update_merchant_status(access_token, merchant_id, status):
-    print('ingestion.py >> update_merchant_status >> Updating merchant status of the store id: ' + merchant_id)
+#Method that exec a PUT HTTP method to update specific merchant
+def update_merchant_status(access_token, merchant_data, status):
+    print('ingestion.py >> update_merchant_status >> Updating merchant status of the store id: ' + merchant_data['id'])
     header = {'token': 'Bearer ' + access_token, 'Content-Type': 'application/json'}
     body = {
-        "can_be_deleted": True,
-        "can_be_updated": True,
-        "id": merchant_id,
+        "can_be_deleted": merchant_data['can_be_deleted'],
+        "can_be_updated": merchant_data['can_be_updated'],
+        "id": merchant_data['id'],
         "is_active": status,
-        "name": MERCHANT_NAME
+        "name": merchant_data['name']
     }
-    response = req.put(BASE_URL +'/api/merchants/'+ str(merchant_id), headers=header, json = body)
+    response = req.put(BASE_URL +'/api/merchants/'+ str(merchant_data['id']), headers=header, json = body)
 
     if response.ok:
-        print('ingestion.py >> update_merchant_status >> Updated correctly >> Store ID: ' + merchant_id)
+        print('ingestion.py >> update_merchant_status >> Updated correctly >> Store ID: ' + merchant_data['id'])
         return True
     else:
-        print('ingestion.py >> update_merchant_status >> There are an error updating the store: ' + merchant_id)
+        print('ingestion.py >> update_merchant_status >> There is an error updating the store: ' + merchant_data['id'])
 
+#Method that exec a DELETE HTTP method to delete specific merchant
 def delete_merchant(access_token, merchant_id):
     print('ingestion.py >> delete_merchant >> Deleting merchant of the store id: ' + merchant_id)
     header = {'token': 'Bearer ' + access_token}
     response = req.delete(BASE_URL +'/api/merchants/'+ str(merchant_id), headers=header)
     
     if response.ok:
-        print('ingestion.py >> delete_merchant >> Deleted correcly >> Store ID: ' + merchant_id)
+        print('ingestion.py >> delete_merchant >> Deleted correctly >> Store ID: ' + merchant_id)
         return True
     else:
-        print('ingestion.py >> delete_merchant >> There are an error deleting the store: ' + merchant_id)
+        print('ingestion.py >> delete_merchant >> There is an error deleting the store: ' + merchant_id)
 
-def update_products(products):
-    print(products.head())
+#Method that exec a POST HTTP method to insert products
+def update_products(access_token, product, merchant_id):
+    header = {'token': 'Bearer ' + access_token, 'Content-Type': 'application/json'}
+    body = {
+	    "merchant_id": merchant_id,
+        "sku": str(product.name),
+        "barcodes": ["62773501448"],
+        "brand": product['BRAND_NAME'],
+        "name": product['ITEM_NAME'],
+        "description": product['_ITEM_DESCRIPTION'],
+        "package": "",
+        "image_url": product['ITEM_IMG'],
+        "category": product['FULL_CATEGORIES'],
+        "url": "",
+        "branch_products": [{
+    	    "branch": product['BRANCH'],
+    	    "stock": product['STOCK'],
+    	    "price": product['PRICE']
+        }]
+    }
+    response = req.post(BASE_URL +'/api/products', headers=header, json = body)
 
+    if response.ok:
+        print('ingestion.py >> update_products >> Product inserted succesfully >> SKU: ' + str(product.name))
+        return True
+    else:
+        print('ingestion.py >> update_products >> There is an error inserting the product with SKU: ' + str(product.name))
 
 def main():
-    print("ingestion.py >> main >> Application initialized correctly! ")
-    richards_id = ''
+    richards_data = {}
     beauty_id = ''
     put_flag = False
     delete_flag = False
@@ -165,32 +192,41 @@ def main():
 
             #Look for the Richard's and Beauty's id in the merchants array
             for merchant in merchants['merchants']:
-                if merchant['name'] == MERCHANT_NAME:
-                    richards_id = merchant['id']
+                if merchant['name'] == MERCHANT_NAME and merchant['is_active'] == False and merchant['can_be_updated'] == True:
+                    richards_data = merchant
                     put_flag = True
 
-                if merchant['name'] == 'Beauty':
+                if merchant['name'] == 'Beauty' and merchant['can_be_deleted'] == True:
                     beauty_id = merchant['id']
                     delete_flag = True
 
             #Update the merchant if it exists in the API
             if put_flag:
-                update_merchant_status(access_token, richards_id, True)
+                update_merchant_status(access_token, richards_data, True)
+            else:
+                print("ingestion.py >> main >> The merchant cannot be updated. Check if it's able to be modified or if it's already actived")
     
             #Delete the merchant if it exists in the API
             if delete_flag:
                 delete_merchant(access_token, beauty_id)
+            else:
+                print("ingestion.py >> main >> The merchant cannot be updated. Check if it's able to be deleted or if not exists")
 
-            update_products(products)
+            df_rhsm_branch = products[products['BRANCH'] == 'RHSM'].sort_values(by=[SORT_COL_NAME], ascending=False).head(TOP_INSERT) 
+            df_mm_branch = products[products['BRANCH'] == 'MM'].sort_values(by=[SORT_COL_NAME], ascending=False).head(TOP_INSERT) 
 
-            os.remove(os.path.join(os.path.abspath(os.path.dirname(__file__)), RELATIVE_PATH_PRODUCTS))
-            os.remove(os.path.join(os.path.abspath(os.path.dirname(__file__)), RELATIVE_PATH_PRICES_STOCKS))
+            #Insert products from the specific branches
+            df_rhsm_branch.apply(lambda row: update_products(access_token, row, richards_data['id']), axis=1)
+            df_mm_branch.apply(lambda row: update_products(access_token, row, richards_data['id']), axis=1)
 
+            #Delete CSV files from environment
+            if os.path.exists(os.path.join(os.path.abspath(os.path.dirname(__file__)), RELATIVE_PATH_PRODUCTS)):
+                os.remove(os.path.join(os.path.abspath(os.path.dirname(__file__)), RELATIVE_PATH_PRODUCTS))
+            if os.path.exists(os.path.join(os.path.abspath(os.path.dirname(__file__)), RELATIVE_PATH_PRICES_STOCKS)):
+                os.remove(os.path.join(os.path.abspath(os.path.dirname(__file__)), RELATIVE_PATH_PRICES_STOCKS))
             print("ingestion.py >> main >> CSV files removed successfully.")
+
     except:
         print("ingestion.py >> main >> Error executing the main method.")
-
-if __name__ == "__main__":
-    main()
 
 
