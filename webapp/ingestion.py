@@ -11,8 +11,12 @@ config.read(config_path)
 
 #Declare constant variables from config file
 MERCHANT_NAME = config['merchant']['name']
+BRANCH_1 = config['merchant']['branch_1']
+BRANCH_2 = config['merchant']['branch_2']
 TOP_INSERT = int(config['source_data']['top_insert'])
+INDEX_COL_NAME = config['source_data']['index_col_name']
 SORT_COL_NAME = config['source_data']['sort_col_name']
+FILL_NA_VALUE = config['source_data']['fill_na_value']
 PRODUCTS_URL = config['source_data']['csv_products']
 STOCK_PRICES_URL = config['source_data']['csv_stocks_prices']
 DELIMITER = config['source_data']['delimiter']
@@ -74,13 +78,13 @@ def process_csv_files():
 
         print('ingestion.py >> process_csv_files >> Defining indexes and delimiters in files')
         #Setting index column and delimiter 
-        df_products = pd.read_csv(RELATIVE_PATH_PRODUCTS, delimiter=DELIMITER, index_col=('SKU'))
-        df_stocks_prices = pd.read_csv(RELATIVE_PATH_PRICES_STOCKS, delimiter=DELIMITER, index_col=('SKU'))
+        df_products = pd.read_csv(RELATIVE_PATH_PRODUCTS, delimiter=DELIMITER, index_col=(INDEX_COL_NAME))
+        df_stocks_prices = pd.read_csv(RELATIVE_PATH_PRICES_STOCKS, delimiter=DELIMITER, index_col=(INDEX_COL_NAME))
 
         #Filterin data
         print('ingestion.py >> process_csv_files >> Filtering data by branches and stocks')
-        df_filtered_prices = df_stocks_prices[(df_stocks_prices['STOCK'] > 0) & ((df_stocks_prices['BRANCH'] == 'RHSM') | (df_stocks_prices['BRANCH'] == 'MM'))]
-        df_final_data = df_products.join(df_filtered_prices, on=['SKU'], how='inner', rsuffix='_rSKU', lsuffix='_lSKU')
+        df_filtered_prices = df_stocks_prices[(df_stocks_prices['STOCK'] > 0) & ((df_stocks_prices['BRANCH'] == BRANCH_1) | (df_stocks_prices['BRANCH'] == BRANCH_2))]
+        df_final_data = df_products.join(df_filtered_prices, on=[INDEX_COL_NAME], how='inner', rsuffix='_rSKU', lsuffix='_lSKU')
 
         #Cleanig data        
         print('ingestion.py >> process_csv_files >> Setting up products categories')
@@ -90,7 +94,7 @@ def process_csv_files():
         df_final_data['_ITEM_DESCRIPTION'] = df_final_data.apply(remove_html_tags, axis = 1)
 
         print('ingestion.py >> process_csv_files >> Filling NULL values')
-        df_final_data = df_final_data.fillna({"BUY_UNIT": 'N/A', "DESCRIPTION_STATUS": 'N/A', "ORGANIC_ITEM": 'N/A'})
+        df_final_data = df_final_data.fillna({"BUY_UNIT": FILL_NA_VALUE, "DESCRIPTION_STATUS": FILL_NA_VALUE, "ORGANIC_ITEM": FILL_NA_VALUE})
 
         return df_final_data
 
@@ -212,8 +216,8 @@ def main():
             else:
                 print("ingestion.py >> main >> The merchant cannot be updated. Check if it's able to be deleted or if not exists")
 
-            df_rhsm_branch = products[products['BRANCH'] == 'RHSM'].sort_values(by=[SORT_COL_NAME], ascending=False).head(TOP_INSERT) 
-            df_mm_branch = products[products['BRANCH'] == 'MM'].sort_values(by=[SORT_COL_NAME], ascending=False).head(TOP_INSERT) 
+            df_rhsm_branch = products[products['BRANCH'] == BRANCH_1].sort_values(by=[SORT_COL_NAME], ascending=False).head(TOP_INSERT) 
+            df_mm_branch = products[products['BRANCH'] == BRANCH_2].sort_values(by=[SORT_COL_NAME], ascending=False).head(TOP_INSERT) 
 
             #Insert products from the specific branches
             df_rhsm_branch.apply(lambda row: update_products(access_token, row, richards_data['id']), axis=1)
