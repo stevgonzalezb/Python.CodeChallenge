@@ -12,6 +12,7 @@ config.read(config_path)
 #Declare constant variables from config file
 MERCHANT_NAME = config['merchant']['name']
 BRANCHES = config['merchant']['branches'].split(";")
+PACKAGES_UNITS = config['merchant']['packages_units'].split(";")
 TOP_INSERT = int(config['source_data']['top_insert'])
 INDEX_COL_NAME = config['source_data']['index_col_name']
 SORT_COL_NAME = config['source_data']['sort_col_name']
@@ -56,6 +57,34 @@ def remove_html_tags(row):
     except:
         print('ingestion.py >> remove_html_tags >> Error removing HTML tags from products description')
 
+#Check if the parameter receives is integer or not
+def is_integer(value):
+	try:
+		int(value)
+		return True
+	except:
+		return False
+
+#Algorithm to extract the package from description
+def extract_package(row):
+    try:
+        desc = row['_ITEM_DESCRIPTION'].replace(' ','')
+        output = FILL_NA_VALUE
+        for package in PACKAGES_UNITS:
+            i = desc.find(package)
+            if i >= 0:
+                c = 1
+                while 1:
+                    if is_integer(desc[i-c:i]):
+                        output = str(desc[i-c:i]) +' '+ package
+                        c = c+1
+                    else:
+                        break
+        return output
+
+    except Exception:
+        pass
+
 #Method that stitches the csv files
 def process_csv_files():
     try:
@@ -80,12 +109,14 @@ def process_csv_files():
         df_products = pd.read_csv(RELATIVE_PATH_PRODUCTS, delimiter=DELIMITER, index_col=(INDEX_COL_NAME))
         df_stocks_prices = pd.read_csv(RELATIVE_PATH_PRICES_STOCKS, delimiter=DELIMITER, index_col=(INDEX_COL_NAME))
 
-        #Filterin data
+        #Filtering data
         print('ingestion.py >> process_csv_files >> Filtering data by branches and stocks')
         df_filtered_prices = df_stocks_prices[(df_stocks_prices['STOCK'] > 0) & (df_stocks_prices['BRANCH'].isin(BRANCHES))]
         df_final_data = df_products.join(df_filtered_prices, on=[INDEX_COL_NAME], how='inner', rsuffix='_rSKU', lsuffix='_lSKU')
 
-        #Cleanig data        
+        df_final_data['PACKAGE'] = df_final_data.apply(extract_package, axis = 1)
+
+        #Cleaning and extracting data        
         print('ingestion.py >> process_csv_files >> Setting up products categories')
         df_final_data['FULL_CATEGORIES'] = df_final_data.apply(concat_categories, axis = 1)
 
@@ -94,6 +125,9 @@ def process_csv_files():
 
         print('ingestion.py >> process_csv_files >> Filling NULL values')
         df_final_data = df_final_data.fillna({"BUY_UNIT": FILL_NA_VALUE, "DESCRIPTION_STATUS": FILL_NA_VALUE, "ORGANIC_ITEM": FILL_NA_VALUE})
+
+        print('ingestion.py >> process_csv_files >> Extracting packages information')
+        df_final_data['PACKAGE'] = df_final_data.apply(extract_package, axis = 1)
 
         return df_final_data
 
@@ -110,7 +144,7 @@ def get_access_token():
     else:
         print('ingestion.py >> get_access_token >> There is an error obtaining the access token')
 
-#Method that exec a GET HTTP method to get all merchants
+#Method that execute a GET HTTP method to get all merchants
 def get_merchants(access_token):
     print('ingestion.py >> get_merchants >> Getting all merchants from API')
     header = {'token': 'Bearer ' + access_token}
@@ -121,7 +155,7 @@ def get_merchants(access_token):
     else:
         print('ingestion.py >> get_merchants >> There is an error obtaining the merchants')
     
-#Method that exec a PUT HTTP method to update specific merchant
+#Method that execute a PUT HTTP method to update specific merchant
 def update_merchant_status(access_token, merchant_data, status):
     print('ingestion.py >> update_merchant_status >> Updating merchant status of the store id: ' + merchant_data['id'])
     header = {'token': 'Bearer ' + access_token, 'Content-Type': 'application/json'}
@@ -140,7 +174,7 @@ def update_merchant_status(access_token, merchant_data, status):
     else:
         print('ingestion.py >> update_merchant_status >> There is an error updating the store: ' + merchant_data['id'])
 
-#Method that exec a DELETE HTTP method to delete specific merchant
+#Method that execute a DELETE HTTP method to delete specific merchant
 def delete_merchant(access_token, merchant_id):
     print('ingestion.py >> delete_merchant >> Deleting merchant of the store id: ' + merchant_id)
     header = {'token': 'Bearer ' + access_token}
@@ -152,7 +186,7 @@ def delete_merchant(access_token, merchant_id):
     else:
         print('ingestion.py >> delete_merchant >> There is an error deleting the store: ' + merchant_id)
 
-#Method that exec a POST HTTP method to insert products
+#Method that execute a POST HTTP method to insert products
 def update_products(access_token, product, merchant_id):
     header = {'token': 'Bearer ' + access_token, 'Content-Type': 'application/json'}
     body = {
@@ -162,7 +196,7 @@ def update_products(access_token, product, merchant_id):
         "brand": product['BRAND_NAME'],
         "name": product['ITEM_NAME'],
         "description": product['_ITEM_DESCRIPTION'],
-        "package": "",
+        "package": product['PACKAGE'],
         "image_url": product['ITEM_IMG'],
         "category": product['FULL_CATEGORIES'],
         "url": "",
@@ -228,5 +262,3 @@ def main():
 
     except Exception as e:
         print("ingestion.py >> main >> Error executing the main method." + e.__class__)
-
-
