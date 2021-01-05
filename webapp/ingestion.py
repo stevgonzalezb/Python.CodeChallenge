@@ -114,8 +114,6 @@ def process_csv_files():
         df_filtered_prices = df_stocks_prices[(df_stocks_prices['STOCK'] > 0) & (df_stocks_prices['BRANCH'].isin(BRANCHES))]
         df_final_data = df_products.join(df_filtered_prices, on=[INDEX_COL_NAME], how='inner', rsuffix='_rSKU', lsuffix='_lSKU')
 
-        df_final_data['PACKAGE'] = df_final_data.apply(extract_package, axis = 1)
-
         #Cleaning and extracting data        
         print('ingestion.py >> process_csv_files >> Setting up products categories')
         df_final_data['FULL_CATEGORIES'] = df_final_data.apply(concat_categories, axis = 1)

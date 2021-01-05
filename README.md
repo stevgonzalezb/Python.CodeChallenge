@@ -32,7 +32,7 @@ Open the /resources/config.ini file, and the its content should have this struct
 | api_client.client_secret  | Client secret to api auth  |   |
 | merchant.name  | Main merchant name  | Richard's  |
 |  merchant.branches | Branches to process. You can list several branches separating the values by semicolon( ; ) |  RHSM;MM |ccc
-|  merchant.packages_units | Packages units to extract from tem description. You can list several units separating the values by semicolon( ; ) |  ML;UN;PZA;GRS;GR,LT |
+|  merchant.packages_units | Packages units to extract from tem description. You can list several units separating the values by semicolon( ; ) |  ML;UN;PZA;GRS;GR;LT |
 |  cron_job.minutes | Minutes cron  | 30  |
 
 ### Execute test file
